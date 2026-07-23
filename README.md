@@ -1,7 +1,7 @@
 # HribShade
 
 A self-contained web app: USGS Topo base map + client-side terrain (slope/aspect)
-shading, built to work with offline
+shading, built to work offline
 
 ## Bookmark or save this page
 
