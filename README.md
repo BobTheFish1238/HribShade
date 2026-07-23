@@ -3,36 +3,9 @@
 A self-contained web app: USGS Topo base map + client-side terrain (slope/aspect)
 shading, built to work with offline
 
-## Why this isn't a single .html file
+## Bookmark or save this page
 
-Opening an HTML file directly on your phone (`file://...`) cannot register a
-Service Worker or use the Cache Storage API — Android/Chrome only allows those
-for pages served over `http://` or `https://` (this is a browser security rule,
-not something this app can work around). So this is a small folder of files
-that needs to be *served*, not just opened. Two easy ways to do that:
-
-### Option A — Free hosting (recommended, easiest long-term)
-1. Create a free GitHub account if you don't have one, make a new repository,
-   and upload all the files in this folder (`index.html`, `sw.js`,
-   `manifest.json`, `maplibre-gl.js`, `maplibre-gl.css`, the two icon PNGs).
-2. Enable **GitHub Pages** for the repo (Settings → Pages → deploy from main
-   branch). You'll get a URL like `https://yourname.github.io/hribshade/`.
-3. Open that URL in Chrome on your Android phone.
-4. Tap **"Install app to home screen"** when it appears (or Chrome menu →
-   *Add to Home screen*). This installs it as a standalone offline-capable app.
-
-Netlify Drop (netlify.com/drop) works the same way if you'd rather drag-and-drop
-the folder without a GitHub account.
-
-### Option B — Serve it locally from your phone (no internet upload needed)
-1. Install **Termux** from F-Droid (not the outdated Play Store version).
-2. Copy this folder onto your phone, e.g. into `Download/hribshade`.
-3. In Termux: `pkg install python`, then
-   `cd /sdcard/Download/hribshade && python -m http.server 8080`
-4. In Chrome, go to `http://localhost:8080`. `localhost` is treated as secure,
-   so the Service Worker will register normally.
-5. Keep Termux running in the background when you want to use the map — it's
-   just serving local files, so this needs no data connection at all.
+https://bobthefish1238.github.io/HribShade/
 
 ## Using it before you lose signal
 
