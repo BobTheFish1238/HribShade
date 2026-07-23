@@ -27,8 +27,7 @@ It reads Mapzen/AWS "terrarium" elevation tiles (public, ~30m resolution,
 SRTM-derived) and computes slope/aspect per-pixel in the browser (Horn's
 method), colored by one of three presets: **Avalanche Terrain** (classic
 25–59°+ slope-angle bands), **Aspect** (16-point compass coloring), or **Flat
-ground**. This is the same math as the original `HribSoil.html` file's
-"Terrain Shading" tab, trimmed down to just that feature.
+ground**.
 
 ⚠️ 30m elevation data smooths out small terrain features (cliff bands, gullies).
 Treat the slope shading as a planning aid, not a substitute for on-the-ground
