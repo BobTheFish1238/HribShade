@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>HribShade</title>
+<link rel="manifest" href="./manifest.json" />
+<meta name="theme-color" content="#1d4ed8" />
+<link rel="icon" href="./icon-192.png" />
+<link rel="stylesheet" href="./maplibre-gl.css" />
+<script src="./maplibre-gl.js"></script>
+<style>
+  html, body, #map { margin:0; padding:0; height:100%; overscroll-behavior:none; }
+  body { font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+
+  .panel {
+    position:absolute; z-index:10; background:rgba(255,255,255,0.97);
+    border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,0.2);
+    font-size:13px; color:#222;
+    max-height:calc(100vh - 90px); display:flex; flex-direction:column;
+  }
+  #layers-panel { top:10px; left:10px; width:min(290px, 52vw); }
+  #offline-panel { top:10px; right:10px; width:min(250px, 42vw); }
+  .panel-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; cursor:pointer; user-select:none; flex-shrink:0;
+  }
+  .panel-body { padding:0 14px 14px; overflow-y:auto; }
+  .panel.collapsed .panel-body { display:none; }
+  .chevron { font-size:10px; color:#999; transition:transform .15s; flex-shrink:0; }
+  .panel.collapsed .chevron { transform:rotate(-90deg); }
+  #status-bar {
+    position:absolute; left:10px; bottom:10px; z-index:10;
+    background:rgba(255,255,255,0.95); padding:6px 10px; border-radius:8px;
+    font-size:11px; color:#555; box-shadow:0 1px 6px rgba(0,0,0,0.15);
+    max-width:calc(100vw - 20px);
+  }
+  h3 { margin:0; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#333; }
+  .row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  label { color:#444; }
+  select, input[type=number] { font-size:13px; padding:3px 5px; border:1px solid #ccc; border-radius:5px; }
+  input[type=range] { flex:1; accent-color:#2563eb; }
+  .btn {
+    font-size:12px; font-weight:600; padding:6px 10px; border:1px solid #ccc; border-radius:6px;
+    background:#f0f0f0; color:#333; cursor:pointer;
+  }
+  .btn.primary { background:#2563eb; color:#fff; border-color:#2563eb; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .legend-row { display:flex; align-items:center; gap:6px; font-size:11px; margin-bottom:2px; }
+  .swatch { width:14px; height:14px; border-radius:3px; flex-shrink:0; }
+  .small { font-size:11px; color:#777; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .grid2 input { width:100%; box-sizing:border-box; }
+  progress { width:100%; height:8px; }
+  hr { border:none; border-top:1px solid #e5e5e5; margin:10px 0; }
+  .section-label { font-size:11px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+
+  /* ── Layer manager ── */
+  .layer-row { display:flex; align-items:center; justify-content:space-between; padding:5px 6px; border-radius:6px; margin-bottom:3px; background:#f6f6f6; }
+  .layer-row.active { background:#dbeafe; }
+  .layer-check { display:flex; align-items:center; gap:6px; cursor:pointer; flex:1; min-width:0; }
+  .layer-check input { accent-color:#2563eb; flex-shrink:0; }
+  .layer-name { font-size:12px; font-weight:600; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .layer-actions { display:flex; gap:2px; flex-shrink:0; }
+  .icon-btn { border:none; background:none; cursor:pointer; font-size:13px; color:#666; padding:2px 5px; border-radius:4px; }
+  .icon-btn:hover { background:#e5e5e5; }
+
+  /* ── Zone editor ── */
+  #ts-editor { margin-top:8px; padding:8px; border:1px solid #ddd; border-radius:8px; background:#fafafa; display:none; }
+  .editor-head { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .editor-name-input { flex:1; font-size:12px; font-weight:600; padding:4px 6px; border:1px solid #ccc; border-radius:5px; min-width:0; }
+  .zone-row { border-top:1px solid #e5e5e5; padding:6px 0; }
+  .zone-row:first-child { border-top:none; }
+  .zone-row-top { display:flex; align-items:flex-start; gap:6px; }
+  .zone-row-top input[type=color] { width:26px; height:26px; padding:1px; border:1px solid #ccc; border-radius:4px; flex-shrink:0; cursor:pointer; }
+  .zone-fields { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .zone-field-pair { display:flex; align-items:center; gap:3px; font-size:11px; }
+  .zone-field-pair input { width:48px; text-align: center; font-size:10px; padding:2px 3px; min-width:20px; }
+  .zone-field-pair .small:first-child { min-width: 44px; color: #888; flex-shrink: 0; }
+  .zone-field-pair span:not(:first-child) {min-width: 0;padding: 0 2px;color: #888;}
+  .zone-row-bottom { display:flex; align-items:center; gap:4px; margin-top:4px; flex-wrap:wrap; }
+  .zone-row-bottom input[type=number] { width:54px; text-align: center; font-size:10px; padding:2px 3px; min-width:20px }
+
+  /* ── Legend ── */
+  .legend-group { margin-bottom:6px; }
+  .legend-group-title { font-size:11px; font-weight:700; color:#555; margin-bottom:2px; }
+
+  /* ── Aspect compass wheel ── */
+  .aspect-wheel-wrap { display:flex; justify-content:center; align-items:center; margin:4px 0 2px; }
+  .aspect-wheel-svg { cursor:default; display:block; touch-action:none; overflow:visible; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="layers-panel" class="panel collapsed">
+  <div class="panel-header" data-toggle="layers-panel">
+    <h3>Terrain Shading</h3>
+    <span class="chevron">▼</span>
+  </div>
+  <div class="panel-body">
+    <div class="row">
+      <input type="checkbox" id="ts-enable" />
+      <label for="ts-enable">Enable shading</label>
+    </div>
+    <div class="row">
+      <label class="small" style="min-width:50px">Opacity</label>
+      <input type="range" style="max-width:50%" id="ts-opacity" min="0" max="100" value="75" />
+      <span id="ts-opacity-val" class="small">75%</span>
+    </div>
+    <div class="row">
+      <label class="small" style="min-width:50px">Units</label>
+      <select id="ts-units">
+        <option value="ft">feet</option>
+        <option value="m">meters</option>
+      </select>
+    </div>
+
+    <div class="section-label">Layers (tick to combine)</div>
+    <div id="ts-layers-list"></div>
+    <button class="btn" id="btn-add-layer" style="width:100%;margin-top:2px;">+ New shading layer</button>
+    <div id="ts-editor"></div>
+
+    <div class="section-label" style="margin-top:10px;">Legend</div>
+    <div id="ts-legend"></div>
+  </div>
+</div>
+
+<div id="offline-panel" class="panel collapsed">
+  <div class="panel-header" data-toggle="offline-panel">
+    <h3>Offline Area</h3>
+    <span class="chevron">▼</span>
+  </div>
+  <div class="panel-body">
+    <div class="small" style="margin-bottom:8px;">
+      While on Wi-Fi, download the map + elevation tiles for the area below so both the base map and terrain shading keep working with no signal.
+    </div>
+    <div class="grid2" style="margin-bottom:6px;">
+      <div><label class="small">North</label><input type="number" id="bb-n" step="0.001" value="48.32"/></div>
+      <div><label class="small">South</label><input type="number" id="bb-s" step="0.001" value="47.98"/></div>
+      <div><label class="small">West</label><input type="number" id="bb-w" step="0.001" value="-122.02"/></div>
+      <div><label class="small">East</label><input type="number" id="bb-e" step="0.001" value="-121.38"/></div>
+    </div>
+    <div class="row">
+      <label class="small" style="min-width:70px">Zoom range</label>
+      <input type="number" id="bb-zmin" value="10" min="0" max="16" style="width:44px" />
+      <span class="small">–</span>
+      <input type="number" id="bb-zmax" value="14" min="0" max="16" style="width:44px" />
+    </div>
+    <div class="row">
+      <button class="btn" id="btn-use-view">Use current map view</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="btn-estimate">Estimate size</button>
+    </div>
+    <div id="estimate-out" class="small" style="margin-bottom:6px;"></div>
+    <div class="row">
+      <button class="btn primary" id="btn-download" style="flex:1;">Download for offline use</button>
+    </div>
+    <progress id="dl-progress" value="0" max="100" style="display:none;"></progress>
+    <div id="dl-status" class="small" style="margin-top:4px;"></div>
+    <hr/>
+    <div class="row">
+      <button class="btn" id="btn-storage">Check storage used</button>
+      <button class="btn" id="btn-clear">Clear offline tiles</button>
+    </div>
+    <div id="storage-out" class="small"></div>
+    <hr/>
+    <div id="install-row" class="row" style="display:none;">
+      <button class="btn primary" id="btn-install" style="flex:1;">Install app to home screen</button>
+    </div>
+    <div id="sw-status" class="small"></div>
+  </div>
+</div>
+
+<div id="status-bar">Loading…</div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   BASE MAP — USGS Topo (raster tiles, XYZ scheme z/y/x per Esri convention)
+   ════════════════════════════════════════════════════════════════════ */
+const USGS_TOPO_URL = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}';
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      'usgs-topo': {
+        type: 'raster',
+        tiles: [USGS_TOPO_URL],
+        tileSize: 256,
+        maxzoom: 16,
+        attribution: 'USGS The National Map'
+      }
+    },
+    layers: [
+      { id: 'usgs-topo-layer', type: 'raster', source: 'usgs-topo' }
+    ]
+  },
+  center: [-121.72, 48.13], // Mountain Loop Highway, WA
+  zoom: 11,
+  attributionControl: { compact: true }
+});
+map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+map.addControl(new maplibregl.GeolocateControl({ positionOptions:{enableHighAccuracy:true}, trackUserLocation:true }), 'bottom-right');
+map.addControl(new maplibregl.ScaleControl({ unit:'imperial' }), 'bottom-left');
+
+/* ════════════════════════════════════════════════════════════════════
+   TERRAIN SHADING — client-side slope/aspect renderer from Mapzen
+   "terrarium" elevation tiles (RGB-encoded height, AWS open dataset).
+   Ported/trimmed from the full HribSoil terrain-shading module.
+   ════════════════════════════════════════════════════════════════════ */
+const TS_M_TO_FT = 3.28084;
+const TS_TERRAIN_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+const TS_MAX_ZOOM = 14;
+
+let tsEnabled = false;
+let tsOpacity = 0.75;
+let tsUnit = 'ft';
+let tsEditingId = null; // id of custom config currently open in the editor
+
+function tsHueToRGB(h){const t=((h%1)+1)%1,n=1-Math.abs(6*t%2-1);let r=0,g=0,b=0;
+  if(t<1/6){r=1;g=n;}else if(t<2/6){r=n;g=1;}else if(t<3/6){g=1;b=n;}
+  else if(t<4/6){g=n;b=1;}else if(t<5/6){b=1;r=n;}else{r=1;b=n;}
+  return{r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)};}
+function tsRgbToHex(c){return'#'+[c.r,c.g,c.b].map(v=>v.toString(16).padStart(2,'0')).join('');}
+function tsAspectLabel(deg){const dirs=['N','NE','E','SE','S','SW','W','NW'];return dirs[Math.round(deg/45)%8];}
+function tsBuildAspectZones(){
+  const zones=[];
+  for(let i=0;i<16;i++){
+    const minA=22.5*i,maxA=Math.min((i+1)*22.5,360);
+    const col=tsHueToRGB((minA+maxA)/2/360);
+    zones.push({aspects:[{minAspect:minA,maxAspect:maxA}],minSlope:2,maxSlope:null,minElev:null,maxElev:null,color:tsRgbToHex(col),label:tsAspectLabel(minA)});
+  }
+  return zones;
+}
+function tsHexToRgb(hex){const v=parseInt(hex.replace('#',''),16);return[(v>>16)&255,(v>>8)&255,v&255];}
+function tsToMeters(v){return tsUnit==='ft'?v/TS_M_TO_FT:v;}
+
+// ── Built-in presets (read-only) ──
+const TS_BUILTINS = [
+  { id:'avalanche', name:'Avalanche Terrain', readonly:true, zones: [
+    {minSlope:25,maxSlope:29,color:'#f1cc38'},
+    {minSlope:29,maxSlope:31,color:'#ff922e'},
+    {minSlope:31,maxSlope:34,color:'#ff5f2b'},
+    {minSlope:34,maxSlope:45,color:'#d7070f'},
+    {minSlope:45,maxSlope:50,color:'#4d279d'},
+    {minSlope:50,maxSlope:59,color:'#00319b'},
+    {minSlope:59,maxSlope:null,color:'#000000'},
+  ]},
+  { id:'aspect', name:'Aspect (compass)', readonly:true, zones: tsBuildAspectZones() },
+  { id:'flat', name:'Flat ground', readonly:true, zones: [ {minSlope:0,maxSlope:1,color:'#00ff44'} ] },
+];
+
+// ── User-created layers + which layers are turned on ──
+let tsCustomConfigs = [];
+let tsActiveIds = new Set(['avalanche']);
+
+const TS_ZONE_PALETTE = ['#1565c0','#2e7d32','#f57f17','#6a1b9a','#b71c1c','#00695c','#e65100','#0288d1','#c2185b','#33691e','#5d4037','#7b1fa2'];
+
+function tsAllConfigs(){ return [...TS_BUILTINS, ...tsCustomConfigs]; }
+function tsGetConfig(id){ return tsAllConfigs().find(c => c.id === id) || null; }
+function tsNewZone(idx){
+  return { minSlope:0, maxSlope:30, minElev:null, maxElev:null, aspects:[], color: TS_ZONE_PALETTE[idx % TS_ZONE_PALETTE.length] };
+}
+function tsGetZones(){
+  return [...tsActiveIds].flatMap(id => {
+    const cfg = tsGetConfig(id);
+    if(!cfg) return [];
+    return cfg.zones.map(z => ({ minSlope:null, maxSlope:null, minElev:null, maxElev:null, aspects:[], ...z }));
+  });
+}
+function tsZoneLabel(z){
+  const parts = [];
+  if(z.minSlope!=null || z.maxSlope!=null) parts.push(`${z.minSlope ?? 0}–${z.maxSlope ?? '∞'}°`);
+  if(z.minElev!=null || z.maxElev!=null) parts.push(`${z.minElev ?? '–'}–${z.maxElev ?? '–'} ${tsUnit}`);
+  if(z.aspects && z.aspects.length>0) parts.push(`${Math.round(z.aspects[0].minAspect)}–${Math.round(z.aspects[0].maxAspect)}° facing`);
+  return parts.length ? parts.join(', ') : 'anywhere';
+}
+
+// ── Persistence (survives reloads / offline use) ──
+const TS_LS_KEY = 'mtloop-ts-v1';
+function tsPersist(){
+  try{
+    localStorage.setItem(TS_LS_KEY, JSON.stringify({
+      customConfigs: tsCustomConfigs, activeIds: [...tsActiveIds],
+      unit: tsUnit, opacity: tsOpacity, enabled: tsEnabled,
+    }));
+  }catch(e){}
+}
+function tsLoadPersisted(){
+  try{
+    const raw = localStorage.getItem(TS_LS_KEY);
+    if(!raw) return;
+    const data = JSON.parse(raw);
+    if(Array.isArray(data.customConfigs)) tsCustomConfigs = data.customConfigs;
+    if(Array.isArray(data.activeIds)) tsActiveIds = new Set(data.activeIds);
+    if(data.unit) tsUnit = data.unit;
+    if(typeof data.opacity === 'number') tsOpacity = data.opacity;
+    if(typeof data.enabled === 'boolean') tsEnabled = data.enabled;
+  }catch(e){}
+}
+tsLoadPersisted();
+
+// ── Layer list UI ──
+function tsRenderLayerList(){
+  const el = document.getElementById('ts-layers-list');
+  el.innerHTML = tsAllConfigs().map(cfg => {
+    const active = tsActiveIds.has(cfg.id);
+    return `<div class="layer-row ${active?'active':''}">
+      <label class="layer-check">
+        <input type="checkbox" class="layer-active-cb" data-id="${cfg.id}" ${active?'checked':''}/>
+        <span class="layer-name">${cfg.name}</span>
+      </label>
+      <div class="layer-actions">
+        ${cfg.readonly ? '' : `<button class="icon-btn edit-layer-btn" data-id="${cfg.id}" title="Edit">✎</button><button class="icon-btn delete-layer-btn" data-id="${cfg.id}" title="Delete">✕</button>`}
+      </div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.layer-active-cb').forEach(cb => {
+    cb.onchange = e => {
+      const id = e.target.dataset.id;
+      if(e.target.checked) tsActiveIds.add(id); else tsActiveIds.delete(id);
+      tsPersist(); tsRenderLayerList(); tsRenderLegend(); tsScheduleRefresh(); tsUpdateStatus();
+    };
+  });
+  el.querySelectorAll('.edit-layer-btn').forEach(b => b.onclick = () => { tsEditingId = b.dataset.id; tsRenderEditor(); });
+  el.querySelectorAll('.delete-layer-btn').forEach(b => b.onclick = () => tsDeleteConfig(b.dataset.id));
+}
+
+function tsAddConfig(){
+  const id = 'custom-' + Date.now();
+  const cfg = { id, name: 'New Layer ' + (tsCustomConfigs.length + 1), readonly:false, zones: [tsNewZone(0)] };
+  tsCustomConfigs.push(cfg);
+  tsActiveIds.add(id);
+  tsEditingId = id;
+  tsPersist();
+  tsRenderLayerList(); tsRenderEditor(); tsRenderLegend(); tsScheduleRefresh(); tsUpdateStatus();
+}
+function tsDeleteConfig(id){
+  if(!confirm('Delete this shading layer? This cannot be undone.')) return;
+  tsCustomConfigs = tsCustomConfigs.filter(c => c.id !== id);
+  tsActiveIds.delete(id);
+  if(tsEditingId === id) tsEditingId = null;
+  tsPersist();
+  tsRenderLayerList(); tsRenderEditor(); tsRenderLegend(); tsScheduleRefresh(); tsUpdateStatus();
+}
+
+// ── Aspect compass wheel widget (ported from HribSoil.html) ──────────────────
+// Degrees: 0=N (top), clockwise. SVG angles: 0=right, so offset by -90.
+function tsWheelDegToRad(d){ return (d-90)*Math.PI/180; }
+
+// range: an {minAspect,maxAspect} object (i.e. z.aspects[0]) mutated in place.
+// getColor: () => current hex color to render the arc in (so it stays live if the
+// zone's color swatch is changed elsewhere without a full re-render).
+// onChange: called after a drag updates range.minAspect/maxAspect.
+function tsMakeAspectWheel(range, getColor, onChange){
+  const R = 58, CX = 68, CY = 68, INNER = 34, OUTER = R;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const size = 136;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'aspect-wheel-wrap';
+
+  const svg = document.createElementNS(svgNS,'svg');
+  svg.setAttribute('viewBox',`0 0 ${size} ${size}`);
+  svg.setAttribute('width', size); svg.setAttribute('height', size);
+  svg.classList.add('aspect-wheel-svg');
+
+  // Background ring (full circle, gray)
+  const bgRing = document.createElementNS(svgNS,'circle');
+  bgRing.setAttribute('cx',CX); bgRing.setAttribute('cy',CY);
+  bgRing.setAttribute('r',(INNER+OUTER)/2);
+  bgRing.setAttribute('fill','none');
+  bgRing.setAttribute('stroke','#e0e0e0');
+  bgRing.setAttribute('stroke-width', OUTER-INNER);
+  svg.appendChild(bgRing);
+
+  // Colored arc (the selected range)
+  const arcPath = document.createElementNS(svgNS,'path');
+  arcPath.setAttribute('opacity', 0.78);
+  svg.appendChild(arcPath);
+
+  // Cardinal labels
+  [{l:'N',d:0},{l:'E',d:90},{l:'S',d:180},{l:'W',d:270}].forEach(({l,d}) => {
+    const rad = tsWheelDegToRad(d);
+    const lx = CX + (OUTER+10)*Math.cos(rad), ly = CY + (OUTER+10)*Math.sin(rad);
+    const t = document.createElementNS(svgNS,'text');
+    t.setAttribute('x',lx); t.setAttribute('y',ly);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('dominant-baseline','central');
+    t.setAttribute('font-size','9'); t.setAttribute('fill','#999'); t.setAttribute('font-family','sans-serif');
+    t.textContent = l;
+    svg.appendChild(t);
+  });
+
+  // Handles
+  const hStart = document.createElementNS(svgNS,'circle');
+  hStart.setAttribute('r',7); hStart.setAttribute('fill','#fff');
+  hStart.setAttribute('stroke','#2563eb'); hStart.setAttribute('stroke-width',2);
+  hStart.style.cursor='grab'; hStart.style.filter='drop-shadow(0 1px 3px rgba(0,0,0,0.25))';
+  svg.appendChild(hStart);
+
+  const hEnd = document.createElementNS(svgNS,'circle');
+  hEnd.setAttribute('r',7); hEnd.setAttribute('fill','#fff');
+  hEnd.setAttribute('stroke','#2563eb'); hEnd.setAttribute('stroke-width',2);
+  hEnd.style.cursor='grab'; hEnd.style.filter='drop-shadow(0 1px 3px rgba(0,0,0,0.25))';
+  svg.appendChild(hEnd);
+
+  const midR = (INNER+OUTER)/2;
+
+  function buildArcPath(startDeg, endDeg){
+    const s = tsWheelDegToRad(startDeg);
+    let sweep = endDeg - startDeg; if (sweep <= 0) sweep += 360;
+    const largeArc = sweep > 180 ? 1 : 0;
+    const eRad = tsWheelDegToRad(startDeg + sweep);
+    const ox1=CX+OUTER*Math.cos(s),    oy1=CY+OUTER*Math.sin(s);
+    const ox2=CX+OUTER*Math.cos(eRad), oy2=CY+OUTER*Math.sin(eRad);
+    const ix1=CX+INNER*Math.cos(eRad), iy1=CY+INNER*Math.sin(eRad);
+    const ix2=CX+INNER*Math.cos(s),    iy2=CY+INNER*Math.sin(s);
+    return `M${ox1},${oy1} A${OUTER},${OUTER},0,${largeArc},1,${ox2},${oy2} L${ix1},${iy1} A${INNER},${INNER},0,${largeArc},0,${ix2},${iy2} Z`;
+  }
+
+  function updateWheel(){
+    arcPath.setAttribute('d', buildArcPath(range.minAspect, range.maxAspect));
+    arcPath.setAttribute('fill', getColor());
+    const sr = tsWheelDegToRad(range.minAspect), er = tsWheelDegToRad(range.maxAspect);
+    hStart.setAttribute('cx', CX+midR*Math.cos(sr)); hStart.setAttribute('cy', CY+midR*Math.sin(sr));
+    hEnd.setAttribute('cx',   CX+midR*Math.cos(er)); hEnd.setAttribute('cy',   CY+midR*Math.sin(er));
+  }
+
+  function svgPointerToDeg(ev){
+    const rect = svg.getBoundingClientRect();
+    const px = ev.clientX - rect.left - CX*(rect.width/size);
+    const py = ev.clientY - rect.top  - CY*(rect.height/size);
+    let deg = Math.atan2(py, px) * 180/Math.PI + 90;
+    if (deg < 0) deg += 360; if (deg >= 360) deg -= 360;
+    return Math.round(deg);
+  }
+
+  function makeDrag(handle, isStart){
+    handle.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      handle.style.cursor='grabbing';
+      svg.setPointerCapture(e.pointerId);
+
+      // Prevent the scrollable ancestor (panel body) from scrolling while dragging
+      const _scrollParent = (() => {
+        let el = wrap.parentElement;
+        while (el) {
+          const style = window.getComputedStyle(el);
+          if (/(auto|scroll)/.test(style.overflowY)) return el;
+          el = el.parentElement;
+        }
+        return null;
+      })();
+      const _savedOverflow = _scrollParent ? _scrollParent.style.overflowY : null;
+      if (_scrollParent) _scrollParent.style.overflowY = 'hidden';
+
+      const _blockTouchScroll = ev => ev.cancelable && ev.preventDefault();
+      window.addEventListener('touchmove', _blockTouchScroll, { passive:false });
+
+      const onMove = ev => {
+        const deg = svgPointerToDeg(ev);
+        if (isStart) range.minAspect = deg; else range.maxAspect = deg;
+        updateWheel(); onChange();
+      };
+      const onUp = () => {
+        handle.style.cursor='grab';
+        if (_scrollParent) _scrollParent.style.overflowY = _savedOverflow;
+        window.removeEventListener('touchmove', _blockTouchScroll);
+        svg.removeEventListener('pointermove', onMove);
+        svg.removeEventListener('pointerup', onUp);
+      };
+      svg.addEventListener('pointermove', onMove);
+      svg.addEventListener('pointerup', onUp);
+    });
+  }
+  makeDrag(hStart, true);
+  makeDrag(hEnd, false);
+
+  wrap.appendChild(svg);
+  updateWheel();
+
+  return { wheel: wrap, updateWheel };
+}
+
+// ── Zone editor UI (for the layer currently being edited) ──
+function tsZoneRowHTML(z, i){
+  const aspectOn = z.aspects && z.aspects.length > 0;
+  const minA = aspectOn ? z.aspects[0].minAspect : 0;
+  const maxA = aspectOn ? z.aspects[0].maxAspect : 360;
+  return `<div class="zone-row" data-zi="${i}">
+    <div class="zone-row-top">
+      <input type="color" class="z-color" value="${z.color}"/>
+      <div class="zone-fields">
+        <div class="zone-field-pair"><span class="small">Slope°</span><input type="number" class="z-minslope" placeholder="min" value="${z.minSlope ?? ''}"/><span class="small">–</span><input type="number" class="z-maxslope" placeholder="max" value="${z.maxSlope ?? ''}"/></div>
+        <div class="zone-field-pair"><span class="small">Elev ${tsUnit}</span><input type="number"  class="z-minelev" placeholder="min" value="${z.minElev ?? ''}"/><span class="small">–</span><input type="number" class="z-maxelev" placeholder="max" value="${z.maxElev ?? ''}"/></div>
+      </div>
+      <button class="icon-btn z-delete" title="Delete zone">✕</button>
+    </div>
+    <div class="zone-row-bottom">
+      <label class="small"><input type="checkbox" class="z-aspect-enable" ${aspectOn?'checked':''}/> Limit by aspect</label>
+      ${aspectOn ? `<input type="number" class="z-minaspect" value="${minA}" min="0" max="360"/><span class="small">–</span><input type="number" class="z-maxaspect" value="${maxA}" min="0" max="360"/><span class="small">°</span>` : ''}
+    </div>
+    ${aspectOn ? `<div class="aspect-wheel-slot"></div>` : ''}
+  </div>`;
+}
+function tsRenderEditor(){
+  const container = document.getElementById('ts-editor');
+  const cfg = tsEditingId ? tsCustomConfigs.find(c => c.id === tsEditingId) : null;
+  if(!cfg){ container.style.display = 'none'; container.innerHTML = ''; return; }
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div class="editor-head">
+      <input type="text" id="editor-name" class="editor-name-input" value="${cfg.name.replace(/"/g,'&quot;')}"/>
+      <button class="icon-btn" id="editor-close" title="Close editor">✕</button>
+    </div>
+    <div id="editor-zones">${cfg.zones.map((z,i) => tsZoneRowHTML(z,i)).join('') || '<div class="small">No zones yet — add one below.</div>'}</div>
+    <button class="btn" id="editor-add-zone" style="width:100%;margin-top:6px;">+ Add zone</button>
+  `;
+  document.getElementById('editor-name').onchange = e => { cfg.name = e.target.value.trim() || 'Untitled layer'; tsPersist(); tsRenderLayerList(); };
+  document.getElementById('editor-close').onclick = () => { tsEditingId = null; tsRenderEditor(); };
+  document.getElementById('editor-add-zone').onclick = () => {
+    cfg.zones.push(tsNewZone(cfg.zones.length));
+    tsPersist(); tsRenderEditor(); tsRenderLegend(); tsScheduleRefresh();
+  };
+  cfg.zones.forEach((z, i) => {
+    const row = container.querySelector(`.zone-row[data-zi="${i}"]`);
+    let wheelApi = null; // set below when aspect limiting is on for this zone
+    row.querySelector('.z-color').oninput = e => { z.color = e.target.value; if(wheelApi) wheelApi.updateWheel(); tsPersist(); tsRenderLegend(); tsScheduleRefresh(); };
+    row.querySelector('.z-minslope').onchange = e => { z.minSlope = e.target.value===''?null:+e.target.value; tsPersist(); tsRenderLegend(); tsScheduleRefresh(); };
+    row.querySelector('.z-maxslope').onchange = e => { z.maxSlope = e.target.value===''?null:+e.target.value; tsPersist(); tsRenderLegend(); tsScheduleRefresh(); };
+    row.querySelector('.z-minelev').onchange = e => { z.minElev = e.target.value===''?null:+e.target.value; tsPersist(); tsRenderLegend(); tsScheduleRefresh(); };
+    row.querySelector('.z-maxelev').onchange = e => { z.maxElev = e.target.value===''?null:+e.target.value; tsPersist(); tsRenderLegend(); tsScheduleRefresh(); };
+    row.querySelector('.z-aspect-enable').onchange = e => {
+      z.aspects = e.target.checked ? [{minAspect:0,maxAspect:360}] : [];
+      tsPersist(); tsRenderEditor(); tsRenderLegend(); tsScheduleRefresh();
+    };
+    const minA = row.querySelector('.z-minaspect'), maxA = row.querySelector('.z-maxaspect');
+    if(minA) minA.onchange = e => { z.aspects[0].minAspect = +e.target.value; if(wheelApi) wheelApi.updateWheel(); tsPersist(); tsRenderLegend(); tsScheduleRefresh(); };
+    if(maxA) maxA.onchange = e => { z.aspects[0].maxAspect = +e.target.value; if(wheelApi) wheelApi.updateWheel(); tsPersist(); tsRenderLegend(); tsScheduleRefresh(); };
+
+    // Compass wheel — only present when this zone has aspect limiting on
+    const wheelSlot = row.querySelector('.aspect-wheel-slot');
+    if(wheelSlot && z.aspects && z.aspects.length > 0){
+      wheelApi = tsMakeAspectWheel(z.aspects[0], () => z.color, () => {
+        if(minA) minA.value = z.aspects[0].minAspect;
+        if(maxA) maxA.value = z.aspects[0].maxAspect;
+        tsPersist(); tsRenderLegend(); tsScheduleRefresh();
+      });
+      wheelSlot.appendChild(wheelApi.wheel);
+    }
+
+    row.querySelector('.z-delete').onclick = () => {
+      cfg.zones.splice(i,1); tsPersist(); tsRenderEditor(); tsRenderLegend(); tsScheduleRefresh();
+    };
+  });
+}
+
+// ── Legend, grouped by active layer ──
+function tsRenderLegend(){
+  const el = document.getElementById('ts-legend');
+  const active = [...tsActiveIds].map(id => tsGetConfig(id)).filter(Boolean);
+  if(active.length === 0){ el.innerHTML = '<div class="small">No active layers</div>'; return; }
+  el.innerHTML = active.map(cfg => `
+    <div class="legend-group">
+      <div class="legend-group-title">${cfg.name}</div>
+      ${cfg.zones.map(z => `<div class="legend-row"><div class="swatch" style="background:${z.color}"></div><span>${tsZoneLabel(z)}</span></div>`).join('')}
+    </div>`).join('');
+}
+
+// ── Terrain math (Horn's method slope/aspect from a 3x3 elevation window) ──
+const tsTileCache = new Map();
+const tsTileOrder = [];
+const TS_CACHE_SIZE = 200;
+
+async function tsFetchElevTile(z,x,y){
+  const key=`${z}/${x}/${y}`;
+  if(tsTileCache.has(key)){const i=tsTileOrder.indexOf(key);if(i>-1)tsTileOrder.splice(i,1);tsTileOrder.unshift(key);return tsTileCache.get(key);}
+  const url=TS_TERRAIN_URL.replace('{z}',z).replace('{x}',x).replace('{y}',y);
+  try{
+    const res=await fetch(url); if(!res.ok) return null;
+    const blob=await res.blob();
+    const bmp=await createImageBitmap(blob);
+    const c=new OffscreenCanvas(256,256); const ctx=c.getContext('2d');
+    ctx.drawImage(bmp,0,0);
+    const raw=ctx.getImageData(0,0,256,256).data;
+    const grid=new Float32Array(256*256);
+    for(let i=0;i<256*256;i++) grid[i]=raw[i*4]*256+raw[i*4+1]+raw[i*4+2]/256-32768;
+    tsTileOrder.unshift(key);
+    if(tsTileOrder.length>TS_CACHE_SIZE){const ev=tsTileOrder.pop();tsTileCache.delete(ev);}
+    tsTileCache.set(key,grid); return grid;
+  }catch{ return null; }
+}
+async function tsGetNeighbourTiles(z,x,y){
+  const w=(tx)=>((tx%2**z)+2**z)%2**z;
+  const cl=(ty)=>Math.max(0,Math.min(2**z-1,ty));
+  const [c,u,d,l,r,ul,ur,dl,dr] = await Promise.all([
+    tsFetchElevTile(z,x,y),
+    tsFetchElevTile(z,w(x),cl(y-1)), tsFetchElevTile(z,w(x),cl(y+1)),
+    tsFetchElevTile(z,w(x-1),cl(y)), tsFetchElevTile(z,w(x+1),cl(y)),
+    tsFetchElevTile(z,w(x-1),cl(y-1)), tsFetchElevTile(z,w(x+1),cl(y-1)),
+    tsFetchElevTile(z,w(x-1),cl(y+1)), tsFetchElevTile(z,w(x+1),cl(y+1)),
+  ]);
+  return {center:c,up:u,down:d,left:l,right:r,upLeft:ul,upRight:ur,downLeft:dl,downRight:dr};
+}
+function tsGetElevN(px,py,tiles){
+  const {center,up,down,left,right,upLeft,upRight,downLeft,downRight}=tiles;
+  if(!center) return null;
+  const ox=px<0?-1:px>=256?1:0, oy=py<0?-1:py>=256?1:0;
+  const rpx=((px%256)+256)%256, rpy=((py%256)+256)%256;
+  let g;
+  if(oy===-1) g=ox===-1?upLeft:ox===0?up:upRight;
+  else if(oy===0) g=ox===-1?left:ox===0?center:right;
+  else g=ox===-1?downLeft:ox===0?down:downRight;
+  if(!g){const cx=Math.max(0,Math.min(255,px)),cy=Math.max(0,Math.min(255,py));return center[cy*256+cx];}
+  const v=g[rpy*256+rpx]; return isNaN(v)?null:v;
+}
+function tsDeg2rad(d){return d*Math.PI/180;}
+function tsHaversine(la1,lo1,la2,lo2){
+  const dLat=tsDeg2rad(la2-la1),dLon=tsDeg2rad(lo2-lo1);
+  const a=Math.sin(dLat/2)**2+Math.cos(tsDeg2rad(la1))*Math.cos(tsDeg2rad(la2))*Math.sin(dLon/2)**2;
+  return 2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))*6371000;
+}
+function tsTile2lon(x,z){return x/2**z*360-180;}
+function tsTile2lat(y,z){const n=Math.PI-2*Math.PI*y/2**z;return 180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n)));}
+function tsComputeSlope(win,csX,csY){
+  const dzdx=(win[2]+2*win[5]+win[8]-win[0]-2*win[3]-win[6])/(8*csX);
+  const dzdy=(win[6]+2*win[7]+win[8]-win[0]-2*win[1]-win[2])/(8*csY);
+  return Math.atan(Math.sqrt(dzdx*dzdx+dzdy*dzdy))*180/Math.PI;
+}
+function tsComputeAspect(win){
+  const dzdx=win[2]+2*win[5]+win[8]-win[0]-2*win[3]-win[6];
+  const dzdy=win[6]+2*win[7]+win[8]-win[0]-2*win[1]-win[2];
+  if(dzdx===0&&dzdy===0) return NaN;
+  let a=180/Math.PI*Math.atan2(dzdy,-dzdx);
+  a=a>90?450-a:90-a; if(a===360)a=0; return a;
+}
+function tsAspectInRange(aspect,def){
+  if(isNaN(aspect)) return false;
+  if(def.minAspect>def.maxAspect) return aspect>=def.minAspect||aspect<=def.maxAspect;
+  return aspect>=def.minAspect&&aspect<=def.maxAspect;
+}
+async function tsGenerateSlopeTile(z,x,y,zones){
+  const tiles=await tsGetNeighbourTiles(z,x,y);
+  if(!tiles.center) return null;
+  const lat1=tsTile2lat(y,z), lat2=tsTile2lat(y+1,z);
+  const lon1=tsTile2lon(x,z), lon2=tsTile2lon(x+1,z);
+  const csX=tsHaversine((lat1+lat2)/2,lon1,(lat1+lat2)/2,lon2)/256;
+  const csY=tsHaversine(lat1,(lon1+lon2)/2,lat2,(lon1+lon2)/2)/256;
+  const px4=new Uint8ClampedArray(256*256*4);
+  const OFF=[[-1,-1],[0,-1],[1,-1],[-1,0],[0,0],[1,0],[-1,1],[0,1],[1,1]];
+  for(let py=0;py<256;py++) for(let px=0;px<256;px++){
+    const center=tsGetElevN(px,py,tiles); if(center===null) continue;
+    const win=OFF.map(([ox,oy])=>{const v=tsGetElevN(px+ox,py+oy,tiles);return v!==null?v:center;});
+    const slope=tsComputeSlope(win,csX,csY);
+    const aspect=tsComputeAspect(win);
+    const elevM=center;
+    for(const zone of zones){
+      const elevMin=zone.minElev!=null?tsToMeters(zone.minElev):-Infinity;
+      const elevMax=zone.maxElev!=null?tsToMeters(zone.maxElev):Infinity;
+      if(elevM<elevMin||elevM>elevMax) continue;
+      if(zone.minSlope!=null&&slope<zone.minSlope) continue;
+      if(zone.maxSlope!=null&&slope>zone.maxSlope) continue;
+      if(zone.aspects&&zone.aspects.length>0 && !zone.aspects.some(a=>tsAspectInRange(aspect,a))) continue;
+      const [r,g,b]=tsHexToRgb(zone.color);
+      const i=(py*256+px)*4; px4[i]=r; px4[i+1]=g; px4[i+2]=b; px4[i+3]=255; break;
+    }
+  }
+  const canvas=new OffscreenCanvas(256,256);
+  canvas.getContext('2d').putImageData(new ImageData(px4,256,256),0,0);
+  const blob=await canvas.convertToBlob({type:'image/png'});
+  return blob.arrayBuffer();
+}
+
+let tsPendingTiles = 0;
+function tsUpdateStatus(){
+  const el = document.getElementById('status-bar');
+  if(!tsEnabled){ el.textContent='Terrain shading off'; return; }
+  if(tsPendingTiles>0){ el.textContent=`Rendering terrain shading… ${tsPendingTiles} tile(s)`; return; }
+  const n = tsActiveIds.size, zones = tsGetZones().length;
+  el.textContent = n===0 ? 'Terrain shading: no active layers' : `Terrain shading: ${n} layer${n>1?'s':''}, ${zones} zone${zones!==1?'s':''}`;
+}
+
+maplibregl.addProtocol('tsslope', async (params) => {
+  const url=new URL(params.url.replace('tsslope://','http://tsslope/'));
+  const parts=url.pathname.replace(/^\//,'').split('/');
+  const z=parseInt(parts[0]), x=parseInt(parts[1]), y=parseInt(parts[2].replace('.png','').split('?')[0]);
+  const empty=async()=>{
+    const c=new OffscreenCanvas(256,256);
+    c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(256*256*4),256,256),0,0);
+    return {data:await (await c.convertToBlob({type:'image/png'})).arrayBuffer()};
+  };
+  if(!tsEnabled) return empty();
+  const zones=tsGetZones();
+  tsPendingTiles++; tsUpdateStatus();
+  try{
+    const data=await tsGenerateSlopeTile(z,x,y,zones);
+    tsPendingTiles--; tsUpdateStatus();
+    return {data:data||new ArrayBuffer(0)};
+  }catch(e){ tsPendingTiles--; tsUpdateStatus(); return empty(); }
+});
+
+function tsInitLayer(){
+  map.addSource('ts-slope-src',{type:'raster',tiles:['tsslope://{z}/{x}/{y}.png'],tileSize:256,minzoom:0,maxzoom:TS_MAX_ZOOM});
+  map.addLayer({id:'ts-slope-layer',type:'raster',source:'ts-slope-src',paint:{'raster-opacity':tsOpacity}});
+}
+let tsRefreshTimer=null;
+function tsScheduleRefresh(){
+  clearTimeout(tsRefreshTimer);
+  tsRefreshTimer=setTimeout(()=>{
+    if(!map.getSource('ts-slope-src')) return;
+    tsTileCache.clear(); tsTileOrder.length=0;
+    map.getSource('ts-slope-src').setTiles(['tsslope://{z}/{x}/{y}.png?_t='+Date.now()]);
+    tsUpdateStatus();
+  },300);
+}
+
+map.on('load', () => {
+  tsInitLayer();
+  tsRenderLayerList();
+  tsRenderEditor();
+  tsRenderLegend();
+  tsUpdateStatus();
+});
+
+// ── Collapsible panels ──
+document.querySelectorAll('.panel-header').forEach(hdr => {
+  hdr.onclick = () => {
+    document.getElementById(hdr.dataset.toggle).classList.toggle('collapsed');
+  };
+});
+
+// ── UI wiring — sync controls to any state loaded from localStorage ──
+document.getElementById('ts-enable').checked = tsEnabled;
+document.getElementById('ts-opacity').value = Math.round(tsOpacity*100);
+document.getElementById('ts-opacity-val').textContent = Math.round(tsOpacity*100)+'%';
+document.getElementById('ts-units').value = tsUnit;
+
+document.getElementById('ts-enable').onchange = e => { tsEnabled=e.target.checked; tsPersist(); tsScheduleRefresh(); tsUpdateStatus(); };
+document.getElementById('ts-units').onchange  = e => { tsUnit=e.target.value; tsPersist(); tsRenderEditor(); tsRenderLegend(); tsScheduleRefresh(); };
+document.getElementById('ts-opacity').oninput = e => {
+  tsOpacity = +e.target.value/100;
+  document.getElementById('ts-opacity-val').textContent = e.target.value+'%';
+  tsPersist();
+  if(map.getLayer('ts-slope-layer')) map.setPaintProperty('ts-slope-layer','raster-opacity',tsOpacity);
+};
+document.getElementById('btn-add-layer').onclick = tsAddConfig;
+
+/* ════════════════════════════════════════════════════════════════════
+   OFFLINE AREA DOWNLOADER — pre-fetches USGS Topo + terrarium elevation
+   tiles into Cache Storage so the Service Worker can serve them with
+   no network connection.
+   ════════════════════════════════════════════════════════════════════ */
+function lon2tile(lon,z){ return Math.floor((lon+180)/360*Math.pow(2,z)); }
+function lat2tile(lat,z){ return Math.floor((1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*Math.pow(2,z)); }
+
+function getBBox(){
+  return {
+    n: +document.getElementById('bb-n').value,
+    s: +document.getElementById('bb-s').value,
+    w: +document.getElementById('bb-w').value,
+    e: +document.getElementById('bb-e').value,
+    zmin: +document.getElementById('bb-zmin').value,
+    zmax: +document.getElementById('bb-zmax').value,
+  };
+}
+
+function buildTileList(){
+  const {n,s,w,e,zmin,zmax} = getBBox();
+  const urls = [];
+  for(let z=zmin; z<=zmax; z++){
+    const xmin=lon2tile(w,z), xmax=lon2tile(e,z);
+    const ymin=lat2tile(n,z), ymax=lat2tile(s,z);
+    for(let x=xmin; x<=xmax; x++){
+      for(let y=ymin; y<=ymax; y++){
+        urls.push(USGS_TOPO_URL.replace('{z}',z).replace('{y}',y).replace('{x}',x));
+        if(z <= TS_MAX_ZOOM){
+          urls.push(TS_TERRAIN_URL.replace('{z}',z).replace('{x}',x).replace('{y}',y));
+        }
+      }
+    }
+  }
+  return urls;
+}
+
+document.getElementById('btn-use-view').onclick = () => {
+  const b = map.getBounds();
+  document.getElementById('bb-n').value = b.getNorth().toFixed(4);
+  document.getElementById('bb-s').value = b.getSouth().toFixed(4);
+  document.getElementById('bb-w').value = b.getWest().toFixed(4);
+  document.getElementById('bb-e').value = b.getEast().toFixed(4);
+};
+
+document.getElementById('btn-estimate').onclick = () => {
+  const urls = buildTileList();
+  const mb = (urls.length * 25) / 1024; // ~25KB/tile average estimate
+  document.getElementById('estimate-out').textContent =
+    `${urls.length} tiles ≈ ${mb.toFixed(0)} MB. Higher max zoom = much more data.`;
+};
+
+document.getElementById('btn-download').onclick = async () => {
+  if(!('caches' in window)){
+    alert('Offline caching needs this page served over http(s) (not opened directly as a file) — see instructions.');
+    return;
+  }
+  const urls = buildTileList();
+  const btn = document.getElementById('btn-download');
+  const prog = document.getElementById('dl-progress');
+  const statusEl = document.getElementById('dl-status');
+  btn.disabled = true; prog.style.display='block'; prog.value=0; prog.max=urls.length;
+
+  const cache = await caches.open('mtloop-tiles-v1');
+  let done=0, failed=0;
+  const CONCURRENCY = 8;
+  let idx = 0;
+  async function worker(){
+    while(idx < urls.length){
+      const url = urls[idx++];
+      try{
+        const existing = await cache.match(url);
+        if(!existing){
+          const resp = await fetch(url, { mode:'cors' });
+          if(resp.ok) await cache.put(url, resp.clone());
+          else failed++;
+        }
+      }catch(e){ failed++; }
+      done++;
+      prog.value = done;
+      statusEl.textContent = `${done}/${urls.length} tiles (${failed} failed)`;
+    }
+  }
+  await Promise.all(Array.from({length:CONCURRENCY}, worker));
+  statusEl.textContent = `Done: ${done - failed}/${urls.length} tiles cached for offline use${failed?`, ${failed} failed (retry if any signal)`:''}.`;
+  btn.disabled = false;
+};
+
+document.getElementById('btn-storage').onclick = async () => {
+  const out = document.getElementById('storage-out');
+  if(navigator.storage && navigator.storage.estimate){
+    const est = await navigator.storage.estimate();
+    out.textContent = `Using ~${(est.usage/1024/1024).toFixed(1)} MB of ~${(est.quota/1024/1024).toFixed(0)} MB available.`;
+  } else {
+    out.textContent = 'Storage estimate not supported in this browser.';
+  }
+};
+document.getElementById('btn-clear').onclick = async () => {
+  if(confirm('Delete all downloaded offline tiles?')){
+    await caches.delete('mtloop-tiles-v1');
+    document.getElementById('storage-out').textContent = 'Offline tiles cleared.';
+  }
+};
+
+/* ── Service worker registration + install prompt ── */
+const swStatus = document.getElementById('sw-status');
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').then(() => {
+    swStatus.textContent = 'Offline mode ready.';
+  }).catch(err => {
+    swStatus.textContent = 'Offline mode unavailable: this page must be served over http(s), not opened as a local file. See setup instructions.';
+  });
+} else {
+  swStatus.textContent = 'This browser does not support offline mode.';
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.getElementById('install-row').style.display = 'flex';
+});
+document.getElementById('btn-install').onclick = async () => {
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById('install-row').style.display = 'none';
+};
+</script>
+</body>
+</html>
